@@ -1,0 +1,23 @@
+name: Vasya
+options:
+  bundleIdPrefix: com.vasya.prototype
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+    TARGETED_DEVICE_FAMILY: '1'
+targets:
+  Vasya:
+    type: application
+    platform: iOS
+    sources:
+      - path: VasyaApp.swift
+      - path: ContentView.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vasya.prototype.app
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: 'Микрофон нужен для голосовых команд.'
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: 'Распознавание речи нужно для голосовых команд.'
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        CODE_SIGNING_ALLOWED: NO
