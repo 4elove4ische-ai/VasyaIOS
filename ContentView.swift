@@ -11,6 +11,7 @@ final class VoiceController: NSObject, ObservableObject, AVSpeechSynthesizerDele
     @Published var draftMessage: String?
     @Published var draftRecipient = ""
     @Published var draftMessenger = "Telegram"
+    @Published var presentShare = false
 
     private enum Stage { case command, message, confirmation }
     private var stage: Stage = .command
@@ -26,6 +27,7 @@ final class VoiceController: NSObject, ObservableObject, AVSpeechSynthesizerDele
     private var active = false
     private var shouldResumeAfterSpeech = false
     private var permissionGranted = false
+    private var starting = false
 
     override init() {
         super.init()
@@ -34,17 +36,21 @@ final class VoiceController: NSObject, ObservableObject, AVSpeechSynthesizerDele
 
     func activate() {
         active = true
-        if permissionGranted { beginRecording(); return }
+        guard !recording && !finalizing && !starting && !synthesizer.isSpeaking else { return }
+        starting = true
+        if permissionGranted { starting = false; beginRecording(); return }
         SFSpeechRecognizer.requestAuthorization { [weak self] authorization in
             DispatchQueue.main.async {
                 guard let self, self.active else { return }
                 guard authorization == .authorized else {
+                    self.starting = false
                     self.status = "Разреши распознавание речи в настройках iPhone"
                     return
                 }
                 AVAudioApplication.requestRecordPermission { [weak self] allowed in
                     DispatchQueue.main.async {
                         guard let self, self.active else { return }
+                        self.starting = false
                         guard allowed else { self.status = "Разреши доступ к микрофону"; return }
                         self.permissionGranted = true
                         self.beginRecording()
@@ -56,6 +62,7 @@ final class VoiceController: NSObject, ObservableObject, AVSpeechSynthesizerDele
 
     func deactivate() {
         active = false
+        starting = false
         shouldResumeAfterSpeech = false
         stopRecording()
         synthesizer.stopSpeaking(at: .immediate)
@@ -65,6 +72,7 @@ final class VoiceController: NSObject, ObservableObject, AVSpeechSynthesizerDele
 
     private func beginRecording() {
         guard active else { return }
+        guard !recording && !finalizing else { return }
         stopRecording()
         synthesizer.stopSpeaking(at: .immediate)
         heard = ""
@@ -83,6 +91,10 @@ final class VoiceController: NSObject, ObservableObject, AVSpeechSynthesizerDele
             request = newRequest
             let input = engine.inputNode
             let format = input.outputFormat(forBus: 0)
+            guard format.channelCount > 0 && format.sampleRate > 0 else {
+                status = "Микрофон ещё не готов. Попробуй снова."
+                return
+            }
             input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
                 newRequest.append(buffer)
             }
@@ -120,7 +132,7 @@ final class VoiceController: NSObject, ObservableObject, AVSpeechSynthesizerDele
         silenceWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.finish() }
         silenceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2, execute: work)
     }
 
     func finish() {
@@ -154,8 +166,9 @@ final class VoiceController: NSObject, ObservableObject, AVSpeechSynthesizerDele
             let answer = text.lowercased()
             if ["да", "отправ", "подтверж", "конечно"].contains(where: { answer.contains($0) }) {
                 stage = .command
-                // Отправка сторонним приложением требует отдельного действия пользователя.
-                say("Текст готов. Нажми «Поделиться», выбери Telegram и получателя. Отправку подтверди в Telegram.", resume: false)
+                // iOS share sheet: user must select the actual recipient and confirm sending.
+                say("Открываю отправку. Выбери получателя и подтверди сообщение в мессенджере.", resume: false)
+                presentShare = true
             } else if ["нет", "отмена", "отмени"].contains(where: { answer.contains($0) }) {
                 draftMessage = nil
                 stage = .command
@@ -301,7 +314,7 @@ struct ContentView: View {
                 Text("Голосовой помощник мотоциклиста").foregroundStyle(.secondary)
                 Text(voice.status).multilineTextAlignment(.center).padding()
                 if !voice.heard.isEmpty { Text("Услышал: \(voice.heard)").foregroundStyle(.secondary) }
-                Button(voice.recording ? "Завершить фразу" : "Включить микрофон") {
+                Button(voice.recording ? "Завершить фразу (резерв)" : "Включить микрофон (резерв)") {
                     if voice.recording { voice.finish() } else { voice.retry() }
                 }.buttonStyle(.borderedProminent).controlSize(.large)
                 if let message = voice.draftMessage {
@@ -332,6 +345,9 @@ struct ContentView: View {
             if let message = voice.draftMessage { ShareSheet(items: [message]) }
         }
         .onAppear { if autoListen { voice.activate() } }
+        .onChange(of: voice.presentShare) { ready in
+            if ready { showingShare = true; voice.presentShare = false }
+        }
         .onChange(of: scenePhase) { phase in
             if phase == .active { if autoListen { voice.activate() } }
             else { voice.deactivate() }
