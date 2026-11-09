@@ -31,7 +31,7 @@ final class VoiceController: NSObject, ObservableObject, SFSpeechRecognizerDeleg
     private func beginRecording() {
         stopAudio()
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
             try AVAudioSession.sharedInstance().setActive(true)
             let req = SFSpeechAudioBufferRecognitionRequest()
             req.shouldReportPartialResults = true
